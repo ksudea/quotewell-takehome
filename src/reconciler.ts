@@ -1,5 +1,7 @@
 import type { AmsRecord, FieldCorrection } from "./types.ts";
 
+const PO_BOX_ADDRESS_PATTERN = /P\.?\s*O\.?\s*Box\s+(\d+),\s*([^,\n]+),\s*([A-Z]{2})\s+(\d{5}(?:-\d{4})?)/i;
+
 type ReconcileResult = {
   record: AmsRecord;
   corrections: FieldCorrection[];
@@ -20,25 +22,31 @@ export function reconcileWithSource(record: AmsRecord, email: string): Reconcile
     nextRecord = { ...nextRecord, annualRevenue: null };
   }
 
-  const poBoxMatch = email.match(/PO Box\s+1142,\s*Bend,\s*OR\s*97709/i);
-  if (poBoxMatch && nextRecord.mailingAddress.street !== "PO Box 1142") {
+  const poBoxMatch = email.match(PO_BOX_ADDRESS_PATTERN);
+  if (poBoxMatch) {
     const finalValue = {
-      street: "PO Box 1142",
-      city: "Bend",
-      state: "OR",
-      zip: "97709"
+      street: `PO Box ${poBoxMatch[1]}`,
+      city: poBoxMatch[2]?.trim() ?? "",
+      state: poBoxMatch[3]?.toUpperCase() ?? "",
+      zip: poBoxMatch[4] ?? ""
     };
-    corrections.push({
-      field: "mailingAddress",
-      modelValue: nextRecord.mailingAddress,
-      finalValue,
-      evidenceSnippet: evidenceAround(email, /PO Box\s+1142,\s*Bend,\s*OR\s*97709/i),
-      reason: "Source explicitly says all mail goes to the owner PO Box, not the facility"
-    });
-    nextRecord = { ...nextRecord, mailingAddress: finalValue };
+    if (!sameMailingAddress(nextRecord.mailingAddress, finalValue)) {
+      corrections.push({
+        field: "mailingAddress",
+        modelValue: nextRecord.mailingAddress,
+        finalValue,
+        evidenceSnippet: evidenceAround(email, PO_BOX_ADDRESS_PATTERN),
+        reason: "Source explicitly says all mail goes to the owner PO Box, not the facility"
+      });
+      nextRecord = { ...nextRecord, mailingAddress: finalValue };
+    }
   }
 
   return { record: nextRecord, corrections };
+}
+
+function sameMailingAddress(left: AmsRecord["mailingAddress"], right: AmsRecord["mailingAddress"]): boolean {
+  return left.street === right.street && left.city === right.city && left.state === right.state && left.zip === right.zip;
 }
 
 function evidenceAround(text: string, pattern: RegExp): string {

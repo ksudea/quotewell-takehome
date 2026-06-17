@@ -1,5 +1,7 @@
 import type { AmsRecord, SubmissionAttempt, SubmissionResult } from "./types.ts";
 
+const CONFIRMATION_ATTEMPTS = 3;
+
 type SubmitOptions = {
   baseUrl: string;
   fetchFn?: typeof fetch;
@@ -42,15 +44,20 @@ export async function submitAndConfirmRecord(
           continue;
         }
 
-        const confirmed = await confirmRecord(fetchFn, options.baseUrl, recordId, record, timeoutMs);
+        const confirmed = await confirmRecordWithRetries(fetchFn, options.baseUrl, recordId, record, timeoutMs, sleep);
         if (confirmed.ok) {
           attempts.push({ attempt, status: response.status, message: "accepted and confirmed" });
           return { ok: true, recordId, attempts };
         }
 
-        attempts.push({ attempt, status: response.status, message: confirmed.message });
-        await sleep(backoffMs(attempt));
-        continue;
+        attempts.push({ attempt, status: response.status, message: `accepted but confirmation failed: ${confirmed.message}` });
+        return {
+          ok: false,
+          recordId,
+          attempts,
+          error: `AMS accepted record ${recordId} but confirmation failed: ${confirmed.message}`,
+          fatal: false
+        };
       }
 
       if (response.status === 429) {
@@ -104,6 +111,33 @@ export async function submitAndConfirmRecord(
     error: `AMS submission not confirmed after ${maxAttempts} attempts`,
     fatal: false
   };
+}
+
+async function confirmRecordWithRetries(
+  fetchFn: typeof fetch,
+  baseUrl: string,
+  recordId: string,
+  expected: AmsRecord,
+  timeoutMs: number,
+  sleep: (ms: number) => Promise<void>
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  let lastMessage = "confirmation was not attempted";
+
+  for (let attempt = 1; attempt <= CONFIRMATION_ATTEMPTS; attempt++) {
+    try {
+      const confirmed = await confirmRecord(fetchFn, baseUrl, recordId, expected, timeoutMs);
+      if (confirmed.ok) return confirmed;
+      lastMessage = confirmed.message;
+    } catch (error) {
+      lastMessage = error instanceof Error ? error.message : String(error);
+    }
+
+    if (attempt < CONFIRMATION_ATTEMPTS) {
+      await sleep(backoffMs(attempt));
+    }
+  }
+
+  return { ok: false, message: lastMessage };
 }
 
 async function confirmRecord(

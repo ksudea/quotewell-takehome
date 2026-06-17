@@ -79,3 +79,32 @@ test("Sundance mailing address is corrected to the PO Box from source email", ()
   });
   assert.deepEqual(reconciled.corrections.map((correction) => correction.field), ["mailingAddress"]);
 });
+
+test("PO Box mailing address correction is built from source captures", () => {
+  const normalized = normalizeExtractedRecord({
+    insuredName: "Sawtooth Storage LLC",
+    dba: "Sawtooth Storage",
+    mailingAddress: {
+      street: "12 Facility Way",
+      city: "Boise",
+      state: "ID",
+      zip: "83706"
+    },
+    lineOfBusiness: "commercial_property",
+    effectiveDate: "2026-08-15",
+    annualRevenue: 950000,
+    contactEmail: "ops@sawtoothstorage.com"
+  });
+  const reconciled = reconcileWithSource(
+    normalized.record,
+    "Facility is at 12 Facility Way. All mail goes to PO Box 2219, Boise, ID 83702 for owner notices."
+  );
+
+  assert.deepEqual(reconciled.record.mailingAddress, {
+    street: "PO Box 2219",
+    city: "Boise",
+    state: "ID",
+    zip: "83702"
+  });
+  assert.match(reconciled.corrections[0]?.evidenceSnippet ?? "", /PO Box 2219, Boise, ID 83702/);
+});

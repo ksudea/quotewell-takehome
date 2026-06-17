@@ -51,6 +51,7 @@ export type SubmissionResult =
     }
   | {
       ok: false;
+      recordId?: string;
       attempts: SubmissionAttempt[];
       error: string;
       fatal: boolean;

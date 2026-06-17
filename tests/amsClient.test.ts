@@ -67,3 +67,37 @@ test("submitAndConfirmRecord retries malformed 200 and only succeeds after GET c
     "GET http://ams.test/api/v1/records/AMS-123"
   ]);
 });
+
+test("submitAndConfirmRecord does not resubmit after accepted record fails confirmation", async () => {
+  const calls: string[] = [];
+  const fetchFn: typeof fetch = async (input, init) => {
+    const url = String(input);
+    calls.push(`${init?.method ?? "GET"} ${url}`);
+
+    if (url.endsWith("/api/v1/records")) {
+      return new Response('{"recordId":"AMS-456","status":"accepted","receivedAt":"2026-06-17T00:00:00.000Z"}', {
+        status: 201,
+        headers: { "content-type": "application/json" }
+      });
+    }
+
+    if (url.endsWith("/api/v1/records/AMS-456")) {
+      return new Response("not found", { status: 404 });
+    }
+
+    return new Response("not found", { status: 404 });
+  };
+
+  const result = await submitAndConfirmRecord(record, {
+    baseUrl: "http://ams.test",
+    fetchFn,
+    sleep: async () => undefined,
+    timeoutMs: 50,
+    maxAttempts: 3
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(calls.filter((call) => call === "POST http://ams.test/api/v1/records").length, 1);
+  assert.equal(calls.filter((call) => call === "GET http://ams.test/api/v1/records/AMS-456").length, 3);
+  assert.match(result.error ?? "", /confirmation failed/i);
+});
