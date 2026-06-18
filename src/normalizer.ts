@@ -1,3 +1,4 @@
+import { isValidIsoDate, normalizeUsSlashDate } from "./date.ts";
 import type { AmsRecord, FieldCorrection, LineOfBusiness, MailingAddress } from "./types.ts";
 
 type NormalizeResult = {
@@ -123,14 +124,18 @@ function normalizeLineOfBusiness(
 
 function normalizeDate(value: unknown, issues: string[], corrections: FieldCorrection[]): string {
   const raw = String(value ?? "").trim();
-  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    if (isValidIsoDate(raw)) return raw;
+    issues.push(`effectiveDate: invalid calendar date "${raw}"`);
+    return raw;
+  }
 
-  const slashMatch = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/);
-  if (slashMatch) {
-    const [, monthRaw, dayRaw, yearRaw] = slashMatch;
-    const yearNumber = Number(yearRaw);
-    const year = yearRaw?.length === 2 ? 2000 + yearNumber : yearNumber;
-    const normalized = `${year}-${monthRaw?.padStart(2, "0")}-${dayRaw?.padStart(2, "0")}`;
+  if (/^\d{1,2}\/\d{1,2}\/(?:\d{2}|\d{4})$/.test(raw)) {
+    const normalized = normalizeUsSlashDate(raw);
+    if (!normalized) {
+      issues.push(`effectiveDate: invalid calendar date "${raw}"`);
+      return raw;
+    }
     corrections.push({
       field: "effectiveDate",
       modelValue: raw,

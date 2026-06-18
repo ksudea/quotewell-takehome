@@ -45,6 +45,17 @@ test("validateAmsRecord returns actionable issues for invalid candidates", () =>
   ]);
 });
 
+test("validateAmsRecord rejects impossible calendar dates", () => {
+  const result = validateAmsRecord({
+    ...validRecord,
+    effectiveDate: "2026-13-05"
+  });
+
+  assert.equal(result.ok, false);
+  if (result.ok) assert.fail("Expected validation to fail");
+  assert.deepEqual(result.issues, ["effectiveDate: invalid calendar date"]);
+});
+
 test("validateAmsRecord rejects unknown fields before AMS submission", () => {
   const candidate = {
     ...validRecord,

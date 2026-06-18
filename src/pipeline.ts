@@ -29,10 +29,12 @@ async function main(): Promise<void> {
 }
 
 async function processEmail(fileName: string): Promise<PipelineResult> {
-  const email = await readFile(path.join(INBOX_DIR, fileName), "utf8");
   const corrections: FieldCorrection[] = [];
+  let unexpectedFailureStatus: "failed_needs_review" | "failed_submission" = "failed_needs_review";
 
   try {
+    const email = await readFile(path.join(INBOX_DIR, fileName), "utf8");
+
     logStage(fileName, "extract");
     const rawModelOutput = await extractEmail(email, { baseUrl: BASE_URL });
 
@@ -59,6 +61,7 @@ async function processEmail(fileName: string): Promise<PipelineResult> {
     }
 
     logStage(fileName, "submit");
+    unexpectedFailureStatus = "failed_submission";
     const submission = await submitAndConfirmRecord(validation.record, { baseUrl: BASE_URL });
 
     logStage(fileName, "confirm");
@@ -83,7 +86,7 @@ async function processEmail(fileName: string): Promise<PipelineResult> {
   } catch (error) {
     return {
       fileName,
-      status: "failed_submission",
+      status: unexpectedFailureStatus,
       corrections,
       retryCount: 0,
       actionNeeded: error instanceof Error ? error.message : String(error)

@@ -22,11 +22,11 @@ The CLI prints stage progress and a final intake audit. For each email, the audi
 
 ## Control points
 
-- Source evidence takes priority over model output. Pelican revenue is submitted as `null` because the email says revenue is TBD, and Sundance uses the PO Box because the email explicitly says mail sent to the facility sits in the office.
-- The validation boundary is explicit. `AmsRecord` is a schema-shaped candidate; `ValidatedAmsRecord` means the final strict Zod schema accepted it as safe to submit. The normalizer can carry imperfect candidate values plus actionable issues long enough to report them, but the AMS client only accepts the branded validated form.
+- Source evidence takes priority over model output. Pelican revenue is submitted as `null` because the email says revenue is TBD, and Sundance uses the PO Box because the email explicitly says mail sent to the facility sits in the office. The revenue override also handles obvious `Revenue: TBD` / `financials pending` variants without trying to become a general evidence extractor.
+- The validation boundary is explicit. `AmsRecord` is a schema-shaped candidate; `ValidatedAmsRecord` means the final strict Zod schema accepted it as safe to submit. The normalizer can carry imperfect candidate values plus actionable issues long enough to report them, but the AMS client only accepts the branded validated form. Effective dates are checked for real calendar validity, not just `YYYY-MM-DD` shape.
 - AMS writes are handled as potentially non-idempotent operations. A `200` is never success, a `201` must contain an accepted record ID, and success is only reported after `GET /api/v1/records/:id` returns the saved payload. If a `201` is malformed or confirmation fails, the pipeline does not blindly retry the write because the AMS may already have saved the record.
 - Retry behavior is limited to cases where the assignment's AMS can recover safely enough for a local exercise: `429` with `Retry-After`, server errors, malformed `200`, and request timeouts. In production, timeouts are ambiguous; I would pair retries with idempotency keys or a reconcile-before-write lookup instead of assuming the previous write failed.
-- Failure states are designed for handoff. Local validation issues become `failed_needs_review`; retry/confirmation problems become `failed_submission` with enough detail for a person to decide the next step.
+- Failure states are designed for handoff. Local validation issues, unreadable source emails, and unparseable extraction output become `failed_needs_review`; retry/confirmation problems become `failed_submission` with enough detail for a person to decide the next step.
 
 ## Scope choices for this version
 

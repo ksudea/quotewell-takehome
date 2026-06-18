@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { isValidIsoDate } from "./date.ts";
+
 export const LINES_OF_BUSINESS = [
   "general_liability",
   "commercial_property",
@@ -68,8 +70,20 @@ export const USPS_STATES = [
 
 const USPS_STATE_SET = new Set<string>(USPS_STATES);
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
 const requiredString = (message: string) => z.string().refine((value) => value.trim().length > 0, message);
+
+const EffectiveDateSchema = z.string().superRefine((value, context) => {
+  if (!ISO_DATE_PATTERN.test(value)) {
+    context.addIssue({ code: "custom", message: "required YYYY-MM-DD" });
+    return;
+  }
+
+  if (!isValidIsoDate(value)) {
+    context.addIssue({ code: "custom", message: "invalid calendar date" });
+  }
+});
 
 export const MailingAddressSchema = z
   .object({
@@ -86,7 +100,7 @@ export const AmsRecordSchema = z
     dba: z.string().refine((value) => value.trim().length > 0, "must be null or non-empty").nullable(),
     mailingAddress: MailingAddressSchema,
     lineOfBusiness: LineOfBusinessSchema,
-    effectiveDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "required YYYY-MM-DD"),
+    effectiveDate: EffectiveDateSchema,
     annualRevenue: z.number().refine(Number.isFinite, "must be numeric USD or null").nullable(),
     contactEmail: z.string().regex(EMAIL_PATTERN, "invalid email")
   })

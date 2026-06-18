@@ -1,6 +1,8 @@
 import type { AmsRecord, FieldCorrection } from "./types.ts";
 
 const PO_BOX_ADDRESS_PATTERN = /P\.?\s*O\.?\s*Box\s+(\d+),\s*([^,\n]+),\s*([A-Z]{2})\s+(\d{5}(?:-\d{4})?)/i;
+const REVENUE_TBD_PATTERN =
+  /\b(?:revenue|rev\.?|financials?)\s*(?:(?:is|are)\s*)?(?::|-|=)?\s*(?:TBD|to be determined|unknown|not available|pending)\b/i;
 
 type ReconcileResult = {
   record: AmsRecord;
@@ -11,12 +13,12 @@ export function reconcileWithSource(record: AmsRecord, email: string): Reconcile
   let nextRecord = structuredClone(record);
   const corrections: FieldCorrection[] = [];
 
-  if (/revenue\s+is\s+TBD/i.test(email) && nextRecord.annualRevenue !== null) {
+  if (REVENUE_TBD_PATTERN.test(email) && nextRecord.annualRevenue !== null) {
     corrections.push({
       field: "annualRevenue",
       modelValue: nextRecord.annualRevenue,
       finalValue: null,
-      evidenceSnippet: evidenceAround(email, /revenue\s+is\s+TBD/i),
+      evidenceSnippet: evidenceAround(email, REVENUE_TBD_PATTERN),
       reason: "Source email says revenue is genuinely not stated; AMS requires null rather than a guess"
     });
     nextRecord = { ...nextRecord, annualRevenue: null };

@@ -54,6 +54,50 @@ test("Pelican revenue is overridden to null when source says TBD", () => {
   assert.match(reconciled.corrections[0]?.evidenceSnippet ?? "", /revenue is TBD/i);
 });
 
+test("Revenue TBD phrasing with punctuation is overridden to null", () => {
+  const normalized = normalizeExtractedRecord({
+    insuredName: "Lagoon Cafe LLC",
+    dba: null,
+    mailingAddress: {
+      street: "9 Harbor Way",
+      city: "Mobile",
+      state: "AL",
+      zip: "36605"
+    },
+    lineOfBusiness: "workers_compensation",
+    effectiveDate: "2026-07-01",
+    annualRevenue: 850000,
+    contactEmail: "ops@lagoon.example"
+  });
+  const reconciled = reconcileWithSource(
+    normalized.record,
+    "Please submit now. Revenue: TBD, and we will provide payroll detail later."
+  );
+
+  assert.equal(reconciled.record.annualRevenue, null);
+  assert.match(reconciled.corrections[0]?.evidenceSnippet ?? "", /Revenue: TBD/i);
+});
+
+test("Impossible slash dates are reported instead of normalized", () => {
+  const normalized = normalizeExtractedRecord({
+    insuredName: "Invalid Date LLC",
+    dba: null,
+    mailingAddress: {
+      street: "1 Calendar Way",
+      city: "Austin",
+      state: "TX",
+      zip: "78701"
+    },
+    lineOfBusiness: "general_liability",
+    effectiveDate: "13/05/26",
+    annualRevenue: 100000,
+    contactEmail: "ops@invaliddate.example"
+  });
+
+  assert.deepEqual(normalized.issues, ['effectiveDate: invalid calendar date "13/05/26"']);
+  assert.equal(normalized.corrections.some((correction) => correction.field === "effectiveDate"), false);
+});
+
 test("Sundance mailing address is corrected to the PO Box from source email", () => {
   const normalized = normalizeExtractedRecord({
     insuredName: "High Desert Holdings LLC",
