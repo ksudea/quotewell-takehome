@@ -21,23 +21,23 @@ export function normalizeExtractedRecord(input: unknown): NormalizeResult {
 
   const corrections: FieldCorrection[] = [];
   const issues: string[] = [];
-  const rawAddress = isObject(input.mailingAddress) ? input.mailingAddress : {};
+  const rawAddress = isObject(input["mailingAddress"]) ? input["mailingAddress"] : {};
 
   const mailingAddress: MailingAddress = {
-    street: normalizeRequiredString(rawAddress.street, "mailingAddress.street", issues),
-    city: normalizeRequiredString(rawAddress.city, "mailingAddress.city", issues),
-    state: normalizeState(rawAddress.state, corrections),
-    zip: normalizeZip(rawAddress.zip, issues)
+    street: normalizeRequiredString(rawAddress["street"], "mailingAddress.street", issues),
+    city: normalizeRequiredString(rawAddress["city"], "mailingAddress.city", issues),
+    state: normalizeState(rawAddress["state"], corrections),
+    zip: normalizeZip(rawAddress["zip"], issues)
   };
 
   const record: AmsRecord = {
-    insuredName: normalizeRequiredString(input.insuredName, "insuredName", issues),
-    dba: normalizeNullableString(input.dba),
+    insuredName: normalizeRequiredString(input["insuredName"], "insuredName", issues),
+    dba: normalizeNullableString(input["dba"]),
     mailingAddress,
-    lineOfBusiness: normalizeLineOfBusiness(input.lineOfBusiness, issues, corrections),
-    effectiveDate: normalizeDate(input.effectiveDate, issues, corrections),
-    annualRevenue: normalizeRevenue(input.annualRevenue, issues, corrections),
-    contactEmail: normalizeRequiredString(input.contactEmail, "contactEmail", issues)
+    lineOfBusiness: normalizeLineOfBusiness(input["lineOfBusiness"], issues, corrections),
+    effectiveDate: normalizeDate(input["effectiveDate"], issues, corrections),
+    annualRevenue: normalizeRevenue(input["annualRevenue"], issues, corrections),
+    contactEmail: normalizeRequiredString(input["contactEmail"], "contactEmail", issues)
   };
 
   return { record, corrections, issues };

@@ -13,10 +13,14 @@ export async function extractEmail(
     throw new Error(`Extraction failed with HTTP ${response.status}: ${await response.text()}`);
   }
 
-  const body = (await response.json()) as { output?: unknown };
-  if (typeof body.output !== "string" || body.output.trim() === "") {
+  const body: unknown = await response.json();
+  if (!isObject(body) || typeof body["output"] !== "string" || body["output"].trim() === "") {
     throw new Error("Extraction response did not include raw model output");
   }
 
-  return body.output;
+  return body["output"];
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

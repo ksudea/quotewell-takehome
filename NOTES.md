@@ -20,6 +20,8 @@ I treated the extraction service as a useful but fallible parser, not as the sou
 
 The CLI prints the workflow stages and a final intake audit so an operator can see which records were corrected, which attempts retried, and what action would be needed if a record could not be confirmed.
 
+I also made the validation boundary explicit in TypeScript with a strict Zod schema: raw normalized records are not submit-able to the AMS until `validateAmsRecord` returns a branded validated record. That is mostly a compile-time guard, but it reflects the operational design: parse, reconcile, validate, then submit.
+
 ## What I cut for time
 
 - A durable job queue or resumable workflow state.

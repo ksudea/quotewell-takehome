@@ -7,11 +7,11 @@ import { normalizeExtractedRecord } from "./normalizer.ts";
 import { parseModelOutput } from "./parser.ts";
 import { reconcileWithSource } from "./reconciler.ts";
 import { logStage, printAudit } from "./reporter.ts";
-import type { FieldCorrection, PipelineResult } from "./types.ts";
+import type { FieldCorrection, PipelineResult, SubmissionResult } from "./types.ts";
 import { validateAmsRecord } from "./validator.ts";
 
-const BASE_URL = process.env.AMS_BASE_URL ?? "http://localhost:8472";
-const INBOX_DIR = process.env.INBOX_DIR ?? "inbox";
+const BASE_URL = process.env["AMS_BASE_URL"] ?? "http://localhost:8472";
+const INBOX_DIR = process.env["INBOX_DIR"] ?? "inbox";
 
 async function main(): Promise<void> {
   const files = (await readdir(INBOX_DIR)).filter((file) => file.endsWith(".txt")).sort();
@@ -46,8 +46,9 @@ async function processEmail(fileName: string): Promise<PipelineResult> {
     corrections.push(...reconciled.corrections);
 
     logStage(fileName, "validate");
-    const validationIssues = [...normalized.issues, ...validateAmsRecord(reconciled.record)];
-    if (validationIssues.length > 0) {
+    const validation = validateAmsRecord(reconciled.record);
+    if (normalized.issues.length > 0 || !validation.ok) {
+      const validationIssues = [...normalized.issues, ...(!validation.ok ? validation.issues : [])];
       return {
         fileName,
         status: "failed_needs_review",
@@ -58,15 +59,16 @@ async function processEmail(fileName: string): Promise<PipelineResult> {
     }
 
     logStage(fileName, "submit");
-    const submission = await submitAndConfirmRecord(reconciled.record, { baseUrl: BASE_URL });
+    const submission = await submitAndConfirmRecord(validation.record, { baseUrl: BASE_URL });
 
     logStage(fileName, "confirm");
     if (!submission.ok) {
       return {
         fileName,
         status: submission.fatal ? "failed_needs_review" : "failed_submission",
+        ...(submission.recordId ? { recordId: submission.recordId } : {}),
         corrections,
-        retryCount: Math.max(0, submission.attempts.length - 1),
+        retryCount: retryCountFor(submission),
         actionNeeded: submission.error
       };
     }
@@ -76,7 +78,7 @@ async function processEmail(fileName: string): Promise<PipelineResult> {
       status: corrections.length > 0 ? "corrected_and_confirmed" : "confirmed",
       recordId: submission.recordId,
       corrections,
-      retryCount: Math.max(0, submission.attempts.length - 1)
+      retryCount: retryCountFor(submission)
     };
   } catch (error) {
     return {
@@ -87,6 +89,10 @@ async function processEmail(fileName: string): Promise<PipelineResult> {
       actionNeeded: error instanceof Error ? error.message : String(error)
     };
   }
+}
+
+function retryCountFor(submission: SubmissionResult): number {
+  return Math.max(0, submission.attempts.length - 1) + Math.max(0, submission.confirmationAttempts - 1);
 }
 
 main().catch((error: unknown) => {

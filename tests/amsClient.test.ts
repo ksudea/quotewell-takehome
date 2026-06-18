@@ -2,7 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { submitAndConfirmRecord } from "../src/amsClient.ts";
-import type { AmsRecord } from "../src/types.ts";
+import { validateAmsRecord } from "../src/validator.ts";
+import type { AmsRecord, ValidatedAmsRecord } from "../src/types.ts";
 
 const record: AmsRecord = {
   insuredName: "Blue Oak Industries LLC",
@@ -18,6 +19,8 @@ const record: AmsRecord = {
   annualRevenue: 4200000,
   contactEmail: "maria@blueoakmfg.com"
 };
+
+const validatedRecord = validateForTest(record);
 
 test("submitAndConfirmRecord retries malformed 200 and only succeeds after GET confirmation", async () => {
   const calls: string[] = [];
@@ -49,7 +52,7 @@ test("submitAndConfirmRecord retries malformed 200 and only succeeds after GET c
     return new Response("not found", { status: 404 });
   };
 
-  const result = await submitAndConfirmRecord(record, {
+  const result = await submitAndConfirmRecord(validatedRecord, {
     baseUrl: "http://ams.test",
     fetchFn,
     sleep: async () => undefined,
@@ -60,6 +63,7 @@ test("submitAndConfirmRecord retries malformed 200 and only succeeds after GET c
   assert.equal(result.ok, true);
   assert.equal(result.recordId, "AMS-123");
   assert.equal(result.attempts.length, 2);
+  assert.equal(result.confirmationAttempts, 1);
   assert.match(result.attempts[0]?.message ?? "", /malformed 200/i);
   assert.deepEqual(calls, [
     "POST http://ams.test/api/v1/records",
@@ -88,7 +92,7 @@ test("submitAndConfirmRecord does not resubmit after accepted record fails confi
     return new Response("not found", { status: 404 });
   };
 
-  const result = await submitAndConfirmRecord(record, {
+  const result = await submitAndConfirmRecord(validatedRecord, {
     baseUrl: "http://ams.test",
     fetchFn,
     sleep: async () => undefined,
@@ -97,7 +101,16 @@ test("submitAndConfirmRecord does not resubmit after accepted record fails confi
   });
 
   assert.equal(result.ok, false);
+  assert.equal(result.confirmationAttempts, 3);
   assert.equal(calls.filter((call) => call === "POST http://ams.test/api/v1/records").length, 1);
   assert.equal(calls.filter((call) => call === "GET http://ams.test/api/v1/records/AMS-456").length, 3);
   assert.match(result.error ?? "", /confirmation failed/i);
 });
+
+function validateForTest(candidate: AmsRecord): ValidatedAmsRecord {
+  const result = validateAmsRecord(candidate);
+  if (!result.ok) {
+    throw new Error(`Invalid test fixture: ${result.issues.join("; ")}`);
+  }
+  return result.record;
+}

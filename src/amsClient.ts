@@ -1,4 +1,4 @@
-import type { AmsRecord, SubmissionAttempt, SubmissionResult } from "./types.ts";
+import type { AmsRecord, SubmissionAttempt, SubmissionResult, ValidatedAmsRecord } from "./types.ts";
 
 const CONFIRMATION_ATTEMPTS = 3;
 
@@ -11,7 +11,7 @@ type SubmitOptions = {
 };
 
 export async function submitAndConfirmRecord(
-  record: AmsRecord,
+  record: ValidatedAmsRecord,
   options: SubmitOptions
 ): Promise<SubmissionResult> {
   const fetchFn = options.fetchFn ?? fetch;
@@ -36,8 +36,8 @@ export async function submitAndConfirmRecord(
       const body = parseJsonObject(responseText);
 
       if (response.status === 201) {
-        const recordId = typeof body?.recordId === "string" ? body.recordId : null;
-        const status = body?.status;
+        const recordId = typeof body?.["recordId"] === "string" ? body["recordId"] : null;
+        const status = body?.["status"];
         if (!recordId || status !== "accepted") {
           attempts.push({ attempt, status: response.status, message: "201 response missing accepted recordId" });
           await sleep(backoffMs(attempt));
@@ -47,7 +47,7 @@ export async function submitAndConfirmRecord(
         const confirmed = await confirmRecordWithRetries(fetchFn, options.baseUrl, recordId, record, timeoutMs, sleep);
         if (confirmed.ok) {
           attempts.push({ attempt, status: response.status, message: "accepted and confirmed" });
-          return { ok: true, recordId, attempts };
+          return { ok: true, recordId, attempts, confirmationAttempts: confirmed.attempts };
         }
 
         attempts.push({ attempt, status: response.status, message: `accepted but confirmation failed: ${confirmed.message}` });
@@ -55,6 +55,7 @@ export async function submitAndConfirmRecord(
           ok: false,
           recordId,
           attempts,
+          confirmationAttempts: confirmed.attempts,
           error: `AMS accepted record ${recordId} but confirmation failed: ${confirmed.message}`,
           fatal: false
         };
@@ -83,9 +84,9 @@ export async function submitAndConfirmRecord(
       }
 
       if (response.status === 422) {
-        const details = JSON.stringify(body?.details ?? body ?? responseText);
+        const details = JSON.stringify(body?.["details"] ?? body ?? responseText);
         attempts.push({ attempt, status: response.status, message: `validation failed: ${details}` });
-        return { ok: false, attempts, error: `AMS validation failed: ${details}`, fatal: true };
+        return { ok: false, attempts, confirmationAttempts: 0, error: `AMS validation failed: ${details}`, fatal: true };
       }
 
       if (response.status >= 500) {
@@ -95,7 +96,13 @@ export async function submitAndConfirmRecord(
       }
 
       attempts.push({ attempt, status: response.status, message: `non-retryable response: ${responseText}` });
-      return { ok: false, attempts, error: `AMS rejected request with HTTP ${response.status}`, fatal: true };
+      return {
+        ok: false,
+        attempts,
+        confirmationAttempts: 0,
+        error: `AMS rejected request with HTTP ${response.status}`,
+        fatal: true
+      };
     } catch (error) {
       attempts.push({
         attempt,
@@ -108,6 +115,7 @@ export async function submitAndConfirmRecord(
   return {
     ok: false,
     attempts,
+    confirmationAttempts: 0,
     error: `AMS submission not confirmed after ${maxAttempts} attempts`,
     fatal: false
   };
@@ -120,13 +128,13 @@ async function confirmRecordWithRetries(
   expected: AmsRecord,
   timeoutMs: number,
   sleep: (ms: number) => Promise<void>
-): Promise<{ ok: true } | { ok: false; message: string }> {
+): Promise<{ ok: true; attempts: number } | { ok: false; attempts: number; message: string }> {
   let lastMessage = "confirmation was not attempted";
 
   for (let attempt = 1; attempt <= CONFIRMATION_ATTEMPTS; attempt++) {
     try {
       const confirmed = await confirmRecord(fetchFn, baseUrl, recordId, expected, timeoutMs);
-      if (confirmed.ok) return confirmed;
+      if (confirmed.ok) return { ok: true, attempts: attempt };
       lastMessage = confirmed.message;
     } catch (error) {
       lastMessage = error instanceof Error ? error.message : String(error);
@@ -137,7 +145,7 @@ async function confirmRecordWithRetries(
     }
   }
 
-  return { ok: false, message: lastMessage };
+  return { ok: false, attempts: CONFIRMATION_ATTEMPTS, message: lastMessage };
 }
 
 async function confirmRecord(
@@ -154,13 +162,13 @@ async function confirmRecord(
   if (!isObject(saved)) return { ok: false, message: "confirmation GET returned malformed JSON" };
 
   const savedRecord = {
-    insuredName: saved.insuredName,
-    dba: saved.dba,
-    mailingAddress: saved.mailingAddress,
-    lineOfBusiness: saved.lineOfBusiness,
-    effectiveDate: saved.effectiveDate,
-    annualRevenue: saved.annualRevenue,
-    contactEmail: saved.contactEmail
+    insuredName: saved["insuredName"],
+    dba: saved["dba"],
+    mailingAddress: saved["mailingAddress"],
+    lineOfBusiness: saved["lineOfBusiness"],
+    effectiveDate: saved["effectiveDate"],
+    annualRevenue: saved["annualRevenue"],
+    contactEmail: saved["contactEmail"]
   };
 
   if (stableStringify(savedRecord) !== stableStringify(expected)) {
@@ -193,7 +201,7 @@ async function requestWithTimeout(
 
 function parseJsonObject(text: string): Record<string, unknown> | null {
   try {
-    const parsed = JSON.parse(text) as unknown;
+    const parsed: unknown = JSON.parse(text);
     return isObject(parsed) ? parsed : null;
   } catch {
     return null;
@@ -217,9 +225,9 @@ function defaultSleep(ms: number): Promise<void> {
 function stableStringify(value: unknown): string {
   if (value === null || typeof value !== "object") return JSON.stringify(value);
   if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
-  return `{${Object.keys(value)
-    .sort()
-    .map((key) => `${JSON.stringify(key)}:${stableStringify((value as Record<string, unknown>)[key])}`)
+  return `{${Object.entries(value)
+    .sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey))
+    .map(([key, nestedValue]) => `${JSON.stringify(key)}:${stableStringify(nestedValue)}`)
     .join(",")}}`;
 }
 
