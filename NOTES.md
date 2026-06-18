@@ -31,13 +31,13 @@ The CLI prints stage progress and a final intake audit. For each email, the audi
 
 - Run state is in memory because the stub is local and deterministic. A production integration should persist job state, attempt history, and confirmation results.
 - Idempotency-key support belongs at the AMS write boundary. The stub does not expose it, but I would require idempotency before retrying ambiguous production writes.
-- Evidence is recorded for corrections rather than every field. In production, every submitted field should carry provenance.
+- Evidence tracking is focused on fields where the pipeline changed or rejected the model output. In production, every submitted field should carry provenance.
 - Human review is represented as CLI statuses and action-needed text. A production system should route reviewable records into a durable queue with ownership and resolution history.
 - Tests focus on the assignment's highest-risk paths: parser behavior, source-grounded corrections, AMS confirmation semantics, malformed acceptance responses, and the final validation boundary.
 
 ## What I would not ship as-is
 
-The source reconciliation is intentionally narrow and regex-based because the assignment has three emails. In production, I would replace it with field-level evidence extraction: each field would carry source snippets, model value, normalized value, confidence, correction history, and human override history. Low-confidence fields, source/model contradictions, and unsupported required fields would route to a review queue instead of being silently corrected.
+For this assignment, evidence tracking is focused on fields where the pipeline changed or rejected the model output. In production, I would expand that into field-level evidence extraction for every submitted field: source snippets, model value, normalized value, confidence, correction history, and human override history. Low-confidence fields, source/model contradictions, and unsupported required fields would route to a review queue instead of being silently corrected.
 
 The current audit is terminal-only. In production I would persist each run, field decision, API attempt, response body classification, confirmation result, and operator action. That durable audit trail is important for debugging carrier integrations and for explaining why a record entered an AMS in a particular state.
 
