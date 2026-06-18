@@ -14,34 +14,40 @@ Then run the pipeline in another terminal:
 npm start
 ```
 
-## What I prioritized
+## Approach
 
-I treated the extraction service as a useful but fallible parser, not as the source of truth. The pipeline keeps the email as the system of record, normalizes the model output into the AMS schema, reconciles high-risk fields against the source email, and only marks an AMS submission as successful after confirming the saved record with `GET /api/v1/records/:id`.
+I treated this as a small governed intake workflow, not just an extraction script. The model is useful for getting to a draft, but the email remains the system of record and the AMS only receives a payload after parsing, normalization, source reconciliation, schema validation, submission, and confirmation.
 
-The CLI prints the workflow stages and a final intake audit so an operator can see which records were corrected, which attempts retried, and what action would be needed if a record could not be confirmed.
+The CLI intentionally prints both stage progress and a final intake audit. For each email, the audit shows the final status, record ID when confirmed, corrected fields, retry count, and any action needed. Corrections carry `modelValue`, `finalValue`, `evidenceSnippet`, and a human-readable reason so an operator can understand why the pipeline overrode the model.
 
-I also made the validation boundary explicit in TypeScript with a strict Zod schema: raw normalized records are not submit-able to the AMS until `validateAmsRecord` returns a branded validated record. That is mostly a compile-time guard, but it reflects the operational design: parse, reconcile, validate, then submit.
+## Governance choices
 
-One subtlety in the type model: `AmsRecord` represents a schema-shaped candidate, while `ValidatedAmsRecord` means the final strict schema has accepted it as safe to submit. The normalizer can still carry imperfect candidate values plus actionable issues long enough to report them; the AMS client only accepts the branded validated form.
+- Source beats model confidence. Pelican revenue is submitted as `null` because the email says revenue is TBD, and Sundance uses the PO Box because the email explicitly says mail sent to the facility sits in the office.
+- The validation boundary is explicit. `AmsRecord` is a schema-shaped candidate; `ValidatedAmsRecord` means the final strict Zod schema accepted it as safe to submit. The normalizer can carry imperfect candidate values plus actionable issues long enough to report them, but the AMS client only accepts the branded validated form.
+- AMS writes are treated carefully. A `200` is never success, a `201` must contain an accepted record ID, and success is only reported after `GET /api/v1/records/:id` returns the saved payload. If a `201` is malformed or confirmation fails, the pipeline does not blindly retry the write because the AMS may already have saved the record.
+- Failures are handoff states, not dead ends. Local validation issues become `failed_needs_review`; retry/confirmation problems become `failed_submission` with enough detail for an operator to decide what to do next.
 
 ## What I cut for time
 
-- A durable job queue or resumable workflow state.
-- A full evidence extraction engine for arbitrary insurance emails.
-- A human review UI.
-- Broad unit coverage for every normalizer branch.
-- Structured logging/metrics beyond the terminal audit.
+- Durable job state, resumability, and persisted audit logs.
+- Idempotency-key support for AMS writes. The stub does not expose this, but I would require it before retrying ambiguous production writes.
+- Field-level evidence for every field. This implementation records evidence for corrections; production should capture provenance for all submitted fields.
+- Confidence scoring and threshold-based human review queues.
+- A human review UI. The CLI statuses are the minimal handoff surface for this takehome.
+- Broad unit coverage for every normalizer branch. I kept tests focused on parser behavior, source-grounded corrections, AMS confirmation semantics, and the final validation boundary.
 
 ## What I would not ship as-is
 
-The source reconciliation is intentionally narrow and regex-based because the assignment has three emails. In production, I would replace this with field-level evidence extraction: each field would carry a confidence score, source snippets, model value, normalized value, and human override history. Low-confidence or contradictory fields would route to a review queue instead of being silently corrected.
+The source reconciliation is intentionally narrow and regex-based because the assignment has three emails. In production, I would replace it with field-level evidence extraction: each field would carry source snippets, model value, normalized value, confidence, correction history, and human override history. Low-confidence fields, source/model contradictions, and unsupported required fields would route to a review queue instead of being silently corrected.
 
-The retry loop is also in-memory. A production version should persist attempt state, use idempotency keys where the AMS supports them, and expose enough operational telemetry to distinguish rate limiting, upstream hangs, malformed responses, and validation defects.
+The current audit is terminal-only. In production I would persist each run, field decision, API attempt, response body classification, confirmation result, and operator action. That durable audit trail is important for debugging carrier integrations and for explaining why a record entered an AMS in a particular state.
 
-## One decision I am confident about
+Unknown model fields are currently dropped when the normalizer builds the AMS candidate. That is safe for submission, but a production governance layer should record ignored or unsupported model fields as part of the intake audit.
 
-A `200` from the AMS is not success. The pipeline only accepts a `201` with a record ID and then confirms the saved record through the reliable lookup endpoint. This prevents silent loss when an integration returns malformed or misleading success responses.
+## Decision I am confident about
 
-## One decision I am less sure about
+I am confident that AMS confirmation should be separate from submission. The pipeline only treats a record as successful after a valid `201` and a reliable lookup confirms the saved payload. This prevents silent loss when an integration returns malformed or misleading success responses.
 
-For this takehome, I auto-correct source-grounded contradictions like Pelican's revenue and Sundance's mailing address. In a real Terminal workflow, I would make the threshold configurable by agency/workflow and likely route some corrections to human review depending on downstream risk.
+## Decision I am less sure about
+
+For this takehome, I auto-correct source-grounded contradictions when the email is explicit. In production, I would make that threshold configurable by agency, line of business, and downstream risk. Some fields should be auto-corrected with evidence; others should go to review even when the source appears clear.
