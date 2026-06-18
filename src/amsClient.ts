@@ -39,9 +39,15 @@ export async function submitAndConfirmRecord(
         const recordId = typeof body?.["recordId"] === "string" ? body["recordId"] : null;
         const status = body?.["status"];
         if (!recordId || status !== "accepted") {
-          attempts.push({ attempt, status: response.status, message: "201 response missing accepted recordId" });
-          await sleep(backoffMs(attempt));
-          continue;
+          const message = "malformed 201 response missing accepted recordId; not retrying POST because AMS may have saved it";
+          attempts.push({ attempt, status: response.status, message });
+          return {
+            ok: false,
+            attempts,
+            confirmationAttempts: 0,
+            error: `AMS returned ${message}`,
+            fatal: false
+          };
         }
 
         const confirmed = await confirmRecordWithRetries(fetchFn, options.baseUrl, recordId, record, timeoutMs, sleep);

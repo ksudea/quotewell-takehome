@@ -107,6 +107,37 @@ test("submitAndConfirmRecord does not resubmit after accepted record fails confi
   assert.match(result.error ?? "", /confirmation failed/i);
 });
 
+test("submitAndConfirmRecord does not resubmit after malformed 201 response", async () => {
+  const calls: string[] = [];
+  const fetchFn: typeof fetch = async (input, init) => {
+    const url = String(input);
+    calls.push(`${init?.method ?? "GET"} ${url}`);
+
+    if (url.endsWith("/api/v1/records")) {
+      return new Response('{"status":"accepted"}', {
+        status: 201,
+        headers: { "content-type": "application/json" }
+      });
+    }
+
+    return new Response("not found", { status: 404 });
+  };
+
+  const result = await submitAndConfirmRecord(validatedRecord, {
+    baseUrl: "http://ams.test",
+    fetchFn,
+    sleep: async () => undefined,
+    timeoutMs: 50,
+    maxAttempts: 3
+  });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.fatal, false);
+  assert.equal(result.confirmationAttempts, 0);
+  assert.equal(calls.filter((call) => call === "POST http://ams.test/api/v1/records").length, 1);
+  assert.match(result.error ?? "", /malformed 201/i);
+});
+
 function validateForTest(candidate: AmsRecord): ValidatedAmsRecord {
   const result = validateAmsRecord(candidate);
   if (!result.ok) {

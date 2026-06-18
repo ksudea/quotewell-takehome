@@ -22,6 +22,8 @@ The CLI prints the workflow stages and a final intake audit so an operator can s
 
 I also made the validation boundary explicit in TypeScript with a strict Zod schema: raw normalized records are not submit-able to the AMS until `validateAmsRecord` returns a branded validated record. That is mostly a compile-time guard, but it reflects the operational design: parse, reconcile, validate, then submit.
 
+One subtlety in the type model: `AmsRecord` represents a schema-shaped candidate, while `ValidatedAmsRecord` means the final strict schema has accepted it as safe to submit. The normalizer can still carry imperfect candidate values plus actionable issues long enough to report them; the AMS client only accepts the branded validated form.
+
 ## What I cut for time
 
 - A durable job queue or resumable workflow state.
